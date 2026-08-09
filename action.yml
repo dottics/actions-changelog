@@ -25,6 +25,14 @@ inputs:
     description: Optional file to write the bare version into (e.g. VERSION). Empty disables.
     required: false
     default: ''
+  open-api-path:
+    description: >-
+      OpenAPI contract(s) whose info.version should follow the release version.
+      Repo-relative; comma- or newline-separated; globs allowed. YAML and JSON
+      are both supported and rewritten in place, preserving comments and
+      formatting. Empty disables.
+    required: false
+    default: ''
   tag-prefix:
     description: Prefix used on release tags.
     required: false
@@ -108,6 +116,9 @@ outputs:
   entry-count:
     description: Number of entry files seen.
     value: ${{ steps.release.outputs.entry-count || steps.validate.outputs.entry-count }}
+  stamped-files:
+    description: Newline-separated list of contract files the version was written into.
+    value: ${{ steps.release.outputs.stamped-files }}
 
 runs:
   using: composite
@@ -136,6 +147,7 @@ runs:
         ENTRY_DIR: ${{ inputs.entry-dir }}
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
         VERSION_FILE: ${{ inputs.version-file }}
+        OPEN_API_PATH: ${{ inputs.open-api-path }}
         TAG_PREFIX: ${{ inputs.tag-prefix }}
         FORCE_BUMP: ${{ inputs.force-bump }}
         RELEASE_DATE: ${{ inputs.release-date }}
@@ -159,6 +171,7 @@ runs:
         GIT_USER_NAME: ${{ inputs.git-user-name }}
         GIT_USER_EMAIL: ${{ inputs.git-user-email }}
         SECTION_FILE: ${{ runner.temp }}/changelog-section.md
+        STAMPED: ${{ steps.release.outputs.stamped-files }}
         DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ inputs.token }}
       run: "${{ github.action_path }}/scripts/open-pr.sh"

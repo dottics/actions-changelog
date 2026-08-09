@@ -1,6 +1,9 @@
 # .github/workflows/validate-entries.yml
 #
-# Checks on every PR that a changelog entry exists and is well-formed.
+# Copy this into any repo using actions-changelog.
+#
+# Checks on every PR that a changelog entry exists and is well-formed, so the
+# release PR can never be assembled from broken entries.
 name: Changelog
 
 on:
@@ -14,14 +17,15 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # The release PR deletes entries rather than adding them, so skip it.
+    if: ${{ !startsWith(github.head_ref, 'release/') }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: your-org/changelog-action@v1
+      - uses: dottics/actions-changelog@v1
         with:
           mode: validate
-          entry-dir: .changelog
           require-entry: 'true'
           skip-labels: no-changelog,skip-changelog,dependencies

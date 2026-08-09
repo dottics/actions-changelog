@@ -6,6 +6,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../scripts/lib.sh
 . "$ROOT/scripts/lib.sh"
+# shellcheck source=../scripts/stamp.sh
+. "$ROOT/scripts/stamp.sh"
 
 PASS=0; FAIL=0
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -174,6 +176,93 @@ REPO="$WORK/repo"; mkdir -p "$REPO"
 )
 check 'highest tag by semver order' '0.10.0' "$(cd "$REPO" && version_from_tags v)"
 check 'no tags -> empty' '' "$(cd "$WORK" && version_from_tags zzz)"
+
+# ---------------------------------------------------------------------------
+section 'openapi stamping'
+# ---------------------------------------------------------------------------
+API="$WORK/api"; mkdir -p "$API"
+cat >"$API/spec.yaml" <<'YAML'
+openapi: 3.1.0
+info:
+  title: Widget API
+  # managed automatically
+  version: 1.2.3   # trailing comment
+  description: |
+    Prose that says version: 9.9.9 and must not change.
+  contact:
+    name: Platform
+    version: not-this-one
+paths:
+  /w:
+    get:
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  version: {type: string}
+x-meta:
+  version: leave-me
+YAML
+stamp_openapi "$API/spec.yaml" 2.0.0 2>/dev/null
+check 'yaml: info.version updated'      '  version: 2.0.0   # trailing comment' "$(sed -n '5p' "$API/spec.yaml")"
+check 'yaml: comment line preserved'    '  # managed automatically' "$(sed -n '4p' "$API/spec.yaml")"
+check 'yaml: prose untouched'           '1' "$(grep -c 'version: 9.9.9' "$API/spec.yaml")"
+check 'yaml: contact.version untouched' '1' "$(grep -c 'version: not-this-one' "$API/spec.yaml")"
+check 'yaml: schema property untouched' '1' "$(grep -c 'version: {type: string}' "$API/spec.yaml")"
+check 'yaml: other top-level untouched' '1' "$(grep -c 'version: leave-me' "$API/spec.yaml")"
+check 'yaml: exactly one 2.0.0'         '1' "$(grep -c '2\.0\.0' "$API/spec.yaml")"
+
+printf "openapi: 3.1.0\ninfo:\n  version: '1.0.0'\n  title: X\n" >"$API/q.yaml"
+stamp_openapi "$API/q.yaml" 2.0.0 2>/dev/null
+check 'yaml: single-quote style kept' "  version: '2.0.0'" "$(sed -n '3p' "$API/q.yaml")"
+printf 'openapi: 3.1.0\ninfo:\n    title: X\n    version: "1.0.0"\n' >"$API/i4.yaml"
+stamp_openapi "$API/i4.yaml" 2.0.0 2>/dev/null
+check 'yaml: 4-space indent + double quotes' '    version: "2.0.0"' "$(sed -n '4p' "$API/i4.yaml")"
+
+cat >"$API/spec.json" <<'JSON'
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Widget API",
+    "description": "mentions \"version\": \"0.0.0\" in a string",
+    "version": "1.2.3",
+    "contact": { "name": "P", "version": "nope" }
+  },
+  "components": { "schemas": { "X": { "properties": { "version": { "type": "string" } } } } }
+}
+JSON
+stamp_openapi "$API/spec.json" 2.0.0 2>/dev/null
+check 'json: info.version updated'      '    "version": "2.0.0",' "$(sed -n '6p' "$API/spec.json")"
+check 'json: escaped string untouched'  '1' "$(grep -c '0\.0\.0' "$API/spec.json")"
+check 'json: contact.version untouched' '1' "$(grep -c '"version": "nope"' "$API/spec.json")"
+check 'json: exactly one 2.0.0'         '1' "$(grep -c '2\.0\.0' "$API/spec.json")"
+
+printf '{"openapi":"3.1.0","info":{"title":"M","version":"1.0.0"},"paths":{}}' >"$API/min.json"
+stamp_openapi "$API/min.json" 2.0.0 2>/dev/null
+check 'json: minified handled' '{"openapi":"3.1.0","info":{"title":"M","version":"2.0.0"},"paths":{}}' \
+  "$(cat "$API/min.json")"
+
+fails() { if ( "$@" ) >/dev/null 2>&1; then printf 'no'; else printf 'yes'; fi; }
+printf 'openapi: 3.1.0\ninfo:\n  title: X\n' >"$API/noversion.yaml"
+printf 'openapi: 3.1.0\ninfo: {title: X, version: 1.0.0}\n' >"$API/flow.yaml"
+printf '{"openapi":"3.1.0","paths":{}}\n' >"$API/noversion.json"
+check 'yaml: missing info.version fails' 'yes' "$(fails stamp_openapi "$API/noversion.yaml" 2.0.0)"
+check 'yaml: flow-style info fails'      'yes' "$(fails stamp_openapi "$API/flow.yaml" 2.0.0)"
+check 'json: missing info.version fails' 'yes' "$(fails stamp_openapi "$API/noversion.json" 2.0.0)"
+check 'missing file fails'               'yes' "$(fails stamp_file openapi "$API/ghost.yaml" 2.0.0)"
+check 'unknown format fails'             'yes' "$(fails stamp_file asyncapi "$API/spec.yaml" 2.0.0)"
+check 'stamping is idempotent'           'no'  "$(fails stamp_openapi "$API/spec.yaml" 2.0.0)"
+
+check 'expand: comma + glob keeps last item' "$API/min.json
+$API/noversion.json
+$API/spec.json
+$API/spec.yaml" "$(stamp_expand "$API/*.json, $API/spec.yaml" 'openapi path')"
+check 'expand: newline separated' "$API/spec.yaml
+$API/q.yaml" "$(stamp_expand "$(printf '%s\n%s' "$API/spec.yaml" "$API/q.yaml")" 'openapi path')"
+check 'expand: unmatched glob fails' 'yes' "$(fails stamp_expand "$API/*.toml" 'openapi path')"
+check 'expand: unmatched literal fails' 'yes' "$(fails stamp_expand "$API/ghost.yaml" 'openapi path')"
 
 printf '%s\n' '--------------------------------------------'
 if [ "$FAIL" -eq 0 ]; then

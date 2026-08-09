@@ -1,0 +1,75 @@
+# .github/workflows/tag-on-merge.yml
+#
+# Optional companion workflow — the last step toward CI/CD.
+#
+# actions-changelog deliberately never tags. This workflow closes the loop:
+# once the release PR is merged, main's changelog documents a version that has
+# no tag yet, so it creates the tag and a GitHub Release from that section.
+#
+# It is idempotent: if the tag already exists it does nothing.
+name: Tag release
+
+on:
+  push:
+    branches: [main]
+    paths: ['CHANGELOG.md']
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: v
+        name: Read the newest changelog version
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^##[[:space:]]+\[?v?([0-9]+\.[0-9]+\.[0-9]+)\]?.*/\1/p' CHANGELOG.md | head -n1)"
+          [ -n "$version" ] || { echo "no version heading in CHANGELOG.md"; exit 0; }
+          echo "version=$version"  >> "$GITHUB_OUTPUT"
+          echo "tag=v$version"     >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract the release notes for that version
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          awk -v v="${{ steps.v.outputs.version }}" '
+            BEGIN { gsub(/\./, "\\.", v) }
+            $0 ~ "^## \\[?v?" v "\\]?" { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: Create the tag
+        if: steps.v.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      - name: Publish the GitHub Release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: gh release create "$TAG" --title "$TAG" --notes-file RELEASE_NOTES.md

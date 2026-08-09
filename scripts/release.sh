@@ -11,11 +11,15 @@
 #   REPO_URL        e.g. https://github.com/owner/repo (enables compare links)
 #   RELEASE_DATE    default today (UTC)
 #   FORCE_BUMP      major|minor|patch to override what the entries say
+#   OPEN_API_PATH   OpenAPI contract(s) whose info.version follows the release;
+#                   comma- or newline-separated, globs allowed
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
+# shellcheck source=stamp.sh
+. "$SCRIPT_DIR/stamp.sh"
 
 ENTRY_DIR="${ENTRY_DIR:-.changelog}"
 CHANGELOG_FILE="${CHANGELOG_FILE:-CHANGELOG.md}"
@@ -25,6 +29,14 @@ REPO_URL="${REPO_URL:-}"
 RELEASE_DATE="${RELEASE_DATE:-$(date -u +%Y-%m-%d)}"
 FORCE_BUMP="${FORCE_BUMP:-}"
 SECTION_OUT="${SECTION_OUT:-}"
+OPEN_API_PATH="${OPEN_API_PATH:-}"
+
+# Contract/manifest stamping targets: "<format>|<path spec>".
+# Register a new contract type by adding one line here and one stamper in
+# scripts/stamp.sh.
+STAMP_SPECS=(
+  "openapi|$OPEN_API_PATH"
+)
 
 # --- gather entries ---------------------------------------------------------
 
@@ -93,6 +105,24 @@ if [ -n "$VERSION_FILE" ]; then
   log "wrote $next to $VERSION_FILE"
 fi
 
+# --- stamp the version into contracts --------------------------------------
+
+stamped=""
+for spec in "${STAMP_SPECS[@]}"; do
+  format="${spec%%|*}"
+  paths_spec="${spec#*|}"
+  [ -n "$paths_spec" ] || continue
+  log "stamping $format targets:"
+  # Assign first: a glob that matches nothing makes stamp_expand fail here,
+  # rather than the loop quietly iterating zero times.
+  targets="$(stamp_expand "$paths_spec" "$format path")"
+  while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    stamp_file "$format" "$target" "$next"
+    stamped="${stamped:+$stamped$'\n'}$target"
+  done <<<"$targets"
+done
+
 # --- consume the entry files ------------------------------------------------
 
 consumed=0
@@ -128,3 +158,4 @@ set_output "version" "$next"
 set_output "previous-version" "$prev"
 set_output "tag" "${TAG_PREFIX}${next}"
 set_output "entry-count" "$consumed"
+set_output "stamped-files" "$stamped"

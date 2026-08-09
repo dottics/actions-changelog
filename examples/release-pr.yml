@@ -1,8 +1,10 @@
 # .github/workflows/release-pr.yml
 #
+# Copy this into any repo that wants automated changelog + version bumps.
+#
 # Runs after a PR lands on main. If any .changelog entries are waiting, it
 # opens (or refreshes) a "chore(release): vX.Y.Z" PR that writes the changelog
-# section and clears the entries.
+# section, bumps the version and clears the entries.
 name: Release PR
 
 on:
@@ -11,12 +13,13 @@ on:
   workflow_dispatch:
     inputs:
       force-bump:
-        description: Override the bump level
+        description: Override the detected bump level
         required: false
         type: choice
         options: ['', patch, minor, major]
         default: ''
 
+# Never let two release runs race each other onto the same branch.
 concurrency:
   group: release-pr-${{ github.ref }}
   cancel-in-progress: false
@@ -31,25 +34,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history + tags so the action can find the latest release tag.
+          # Full history + tags, so the action can find the latest release tag.
           fetch-depth: 0
           fetch-tags: true
 
       - id: changelog
-        uses: your-org/changelog-action@v1
+        uses: dottics/actions-changelog@v1
         with:
           mode: release
-          entry-dir: .changelog
-          changelog-file: CHANGELOG.md
-          # version-file: VERSION      # uncomment to keep a VERSION file in sync
-          tag-prefix: v
           base-branch: main
           pr-labels: release,automated
           force-bump: ${{ inputs.force-bump }}
+          # version-file: VERSION    # uncomment to keep a VERSION file in sync
+          #
+          # Contracts whose version should track the release. Repo-relative,
+          # comma- or newline-separated, globs allowed, YAML or JSON:
+          #   open-api-path: api/openapi.yaml
+          #   open-api-path: api/openapi.yaml, api/admin.yaml
+          #   open-api-path: api/**/openapi.yaml
+          open-api-path: ''
+          #
           # A PR opened with the default GITHUB_TOKEN will NOT trigger other
-          # workflows. Swap in a PAT or GitHub App token if the release PR
-          # needs to run CI.
+          # workflows. If the release PR needs CI to run on it, pass a PAT or
+          # GitHub App token instead:
           # token: ${{ secrets.RELEASE_PAT }}
 
       - if: steps.changelog.outputs.has-changes == 'true'
-        run: echo "Prepared ${{ steps.changelog.outputs.tag }} → ${{ steps.changelog.outputs.pull-request-url }}"
+        run: |
+          echo "Prepared ${{ steps.changelog.outputs.tag }}"
+          echo "PR: ${{ steps.changelog.outputs.pull-request-url }}"

@@ -53,6 +53,14 @@ body_file="$(mktemp)"
   printf 'Automated release prep for **%s** (`%s` bump).\n\n' "$TAG" "${BUMP:-unknown}"
   printf 'This PR was opened because entries were found in the changelog directory on `%s`.\n' "$BASE_BRANCH"
   printf 'Merging it publishes the changelog section below and clears the consumed entry files.\n\n'
+  if [ -n "${STAMPED:-}" ]; then
+    printf 'Version stamped into:\n\n'
+    printf '%s\n' "$STAMPED" | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      printf -- '- `%s`\n' "$f"
+    done
+    printf '\n'
+  fi
   printf -- '---\n\n'
   if [ -n "$SECTION_FILE" ] && [ -f "$SECTION_FILE" ]; then
     cat "$SECTION_FILE"

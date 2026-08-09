@@ -41,24 +41,72 @@ PR #13  adds .changelog/patch/fix-redirect.md ──┤  both merge to main
 The action never tags or publishes. It only ever proposes a pull request, so a
 human stays in the loop and every version bump is reviewable.
 
-## Setup
+## Using it in another repo
 
-**1. Create the entry directory** in your repo:
+Nothing to install — GitHub fetches the action from this repo at run time.
 
-```
-.changelog/
-  README.md          # copy the one from this repo — it's the contributor docs
-  major/.gitkeep
-  minor/.gitkeep
-  patch/.gitkeep
+**1. Create the entry directory:**
+
+```bash
+mkdir -p .changelog/{major,minor,patch}
+touch .changelog/{major,minor,patch}/.gitkeep
+curl -sO https://raw.githubusercontent.com/dottics/actions-changelog/main/.changelog/README.md \
+  --output-dir .changelog          # contributor docs, optional but recommended
 ```
 
 **2. Add the release workflow** — copy [`examples/release-pr.yml`](examples/release-pr.yml)
-to `.github/workflows/release-pr.yml`.
+to `.github/workflows/release-pr.yml`. The whole thing is:
 
-**3. Optionally add the validation workflow** — copy
-[`examples/validate-entries.yml`](examples/validate-entries.yml) to enforce
-"every PR ships a changelog entry".
+```yaml
+name: Release PR
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-pr-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: dottics/actions-changelog@v1
+        with:
+          mode: release
+          base-branch: main
+```
+
+**3. Optionally enforce entries on PRs** — copy
+[`examples/validate-entries.yml`](examples/validate-entries.yml).
+
+**4. Optionally tag on merge** — copy [`examples/tag-on-merge.yml`](examples/tag-on-merge.yml)
+to create the git tag and GitHub Release once the release PR lands. That is the
+last piece of the CI/CD loop; this action itself never tags.
+
+**5. Allow Actions to open PRs.** In the consuming repo:
+Settings → Actions → General → Workflow permissions → tick
+*"Allow GitHub Actions to create and approve pull requests"*.
+
+### Pinning
+
+| Reference | Behaviour |
+| --- | --- |
+| `dottics/actions-changelog@v1` | Latest v1.x.y. Recommended. |
+| `dottics/actions-changelog@v1.4.2` | Exact release. |
+| `dottics/actions-changelog@<sha>` | Immutable. Use if you need supply-chain pinning. |
+
+If the repo is private, consuming repos need
+Settings → Actions → General → *Access* set to allow other repos in the
+`dottics` org to use it.
 
 ## Writing an entry
 
@@ -110,6 +158,7 @@ fails rather than writing a duplicate.
 | `entry-dir` | `.changelog` | Directory holding `major/ minor/ patch/`. |
 | `changelog-file` | `CHANGELOG.md` | Path to the changelog. Created if missing. |
 | `version-file` | *(empty)* | Optional file to write the bare version into, e.g. `VERSION`. |
+| `open-api-path` | *(empty)* | OpenAPI contract(s) whose `info.version` follows the release. See [Stamping contracts](#stamping-contracts). |
 | `tag-prefix` | `v` | Prefix on release tags. |
 | `force-bump` | *(empty)* | Override the detected level (`major`/`minor`/`patch`). |
 | `release-date` | today (UTC) | Date used in the section heading. |
@@ -136,6 +185,65 @@ fails rather than writing a duplicate.
 | `tag` | New version with the tag prefix (`v1.4.0`). |
 | `pull-request-url` | URL of the opened or updated release PR. |
 | `entry-count` | Number of entry files seen. |
+| `stamped-files` | Newline-separated list of contract files the version was written into. |
+
+## Stamping contracts
+
+The release PR can carry the new version into your API contracts, so the
+published spec never disagrees with the changelog.
+
+```yaml
+- uses: dottics/actions-changelog@v1
+  with:
+    mode: release
+    open-api-path: api/openapi.yaml
+```
+
+The value is repo-relative and accepts several paths, comma- or
+newline-separated, with globs:
+
+```yaml
+    open-api-path: api/openapi.yaml, api/admin.yaml
+    open-api-path: services/*/openapi.yaml
+    open-api-path: |
+      api/public/openapi.yaml
+      api/internal/openapi.json
+```
+
+Both YAML and JSON specs are supported. Only `info.version` is touched — the
+rewrite is line- and character-scoped, so comments, key order, indentation,
+quote style and every other `version` key in the file survive untouched:
+
+```diff
+ openapi: 3.1.0
+ info:
+   title: Widget API
+   # Managed by dottics/actions-changelog — do not edit by hand.
+-  version: 1.2.3
++  version: 1.3.0
+```
+
+It fails loudly rather than guessing. A path that matches nothing, a spec with
+no `info.version`, or an `info:` written in flow style (`info: {…}`) all stop
+the run before a PR is opened.
+
+### Adding another contract type
+
+`scripts/stamp.sh` is a small registry. A new format is three edits:
+
+1. Write `stamp_<format>()` in `scripts/stamp.sh`, format-preserving.
+2. Add a `case` arm to `stamp_file`.
+3. Add the input to `action.yml` and a line to `STAMP_SPECS` in `scripts/release.sh`:
+
+```bash
+STAMP_SPECS=(
+  "openapi|$OPEN_API_PATH"
+  "asyncapi|$ASYNC_API_PATH"     # <- new
+)
+```
+
+Path expansion, glob handling, missing-file errors, the PR body listing and
+the `stamped-files` output all come for free.
 
 ## Things worth knowing
 
@@ -162,12 +270,20 @@ didn't approve.
 ```
 action.yml               composite action definition
 scripts/lib.sh           semver, entry parsing, changelog rendering
+scripts/stamp.sh         contract version stampers (openapi; extend here)
 scripts/validate.sh      mode: validate
 scripts/release.sh       mode: release — rewrites CHANGELOG.md in the worktree
 scripts/open-pr.sh       branch, commit, push, gh pr create/edit
 tests/run.sh             dependency-free bash test suite
 examples/                workflows to copy into consuming repos
 ```
+
+## Releasing this action
+
+Tag a `vX.Y.Z` release; `.github/workflows/major-tag.yml` force-moves the
+floating `vX` tag so consumers on `@v1` pick it up automatically. This repo
+dogfoods its own `.changelog` directory, so the version bump itself arrives as
+a release PR.
 
 ## Development
 
