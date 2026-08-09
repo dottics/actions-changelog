@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -x -P scripts scripts/*.sh tests/run.sh
+      - name: unit tests
+        run: tests/run.sh
+
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: seed an entry
+        run: |
+          mkdir -p .changelog/patch
+          echo "Self-test entry" > .changelog/patch/self-test.md
+      - id: run
+        uses: ./
+        with:
+          mode: release
+          dry-run: 'true'
+          release-date: '2026-01-01'
+      - name: check outputs
+        run: |
+          test "${{ steps.run.outputs.has-changes }}" = "true"
+          test -n "${{ steps.run.outputs.version }}"
+          grep -q "Self-test entry" CHANGELOG.md
+          echo "resolved ${{ steps.run.outputs.previous-version }} -> ${{ steps.run.outputs.version }}"

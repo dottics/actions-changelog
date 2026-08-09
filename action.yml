@@ -1,0 +1,182 @@
+name: Changelog Release PR
+description: >-
+  Collect .changelog entries, work out the semver bump, and open a pull request
+  that updates CHANGELOG.md and the version. Also validates entries on PRs.
+author: Johannes
+
+branding:
+  icon: file-text
+  color: purple
+
+inputs:
+  mode:
+    description: '"release" (open the bump PR) or "validate" (check entries on a PR).'
+    required: false
+    default: release
+  entry-dir:
+    description: Directory holding major/ minor/ patch/ entry files.
+    required: false
+    default: .changelog
+  changelog-file:
+    description: Path to the changelog.
+    required: false
+    default: CHANGELOG.md
+  version-file:
+    description: Optional file to write the bare version into (e.g. VERSION). Empty disables.
+    required: false
+    default: ''
+  tag-prefix:
+    description: Prefix used on release tags.
+    required: false
+    default: v
+  force-bump:
+    description: Override the detected bump level (major|minor|patch).
+    required: false
+    default: ''
+  release-date:
+    description: Date for the changelog heading. Defaults to today (UTC).
+    required: false
+    default: ''
+  compare-links:
+    description: Maintain "[x.y.z]: .../compare/..." reference links at the bottom of the changelog.
+    required: false
+    default: 'true'
+  base-branch:
+    description: Branch the release PR targets. Defaults to the checked-out branch.
+    required: false
+    default: ''
+  branch-prefix:
+    description: Prefix for the release branch name.
+    required: false
+    default: release/
+  pr-title:
+    description: Title of the release PR. Defaults to "chore(release): <tag>".
+    required: false
+    default: ''
+  pr-labels:
+    description: Comma-separated labels to apply to the release PR.
+    required: false
+    default: ''
+  commit-message:
+    description: Commit message on the release branch. Defaults to "chore(release): <tag>".
+    required: false
+    default: ''
+  git-user-name:
+    description: git user.name for the release commit.
+    required: false
+    default: 'github-actions[bot]'
+  git-user-email:
+    description: git user.email for the release commit.
+    required: false
+    default: '41898282+github-actions[bot]@users.noreply.github.com'
+  require-entry:
+    description: (validate mode) Fail when the PR adds no changelog entry.
+    required: false
+    default: 'true'
+  skip-labels:
+    description: (validate mode) Comma-separated PR labels that waive require-entry.
+    required: false
+    default: 'no-changelog,skip-changelog'
+  dry-run:
+    description: Do everything except pushing the branch and opening the PR.
+    required: false
+    default: 'false'
+  token:
+    description: Token used to push the branch and open the PR.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  has-changes:
+    description: '"true" when entries were found and a release was prepared.'
+    value: ${{ steps.release.outputs.has-changes }}
+  bump:
+    description: The bump level that was applied.
+    value: ${{ steps.release.outputs.bump }}
+  version:
+    description: The new version (bare, e.g. 1.4.0).
+    value: ${{ steps.release.outputs.version }}
+  previous-version:
+    description: The version the bump was calculated from.
+    value: ${{ steps.release.outputs.previous-version }}
+  tag:
+    description: The new version with the tag prefix (e.g. v1.4.0).
+    value: ${{ steps.release.outputs.tag }}
+  pull-request-url:
+    description: URL of the opened or updated release PR.
+    value: ${{ steps.pr.outputs.pull-request-url }}
+  entry-count:
+    description: Number of entry files seen.
+    value: ${{ steps.release.outputs.entry-count || steps.validate.outputs.entry-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Make scripts executable
+      shell: bash
+      run: chmod +x "${{ github.action_path }}"/scripts/*.sh
+
+    - name: Validate changelog entries
+      id: validate
+      if: inputs.mode == 'validate'
+      shell: bash
+      env:
+        ENTRY_DIR: ${{ inputs.entry-dir }}
+        REQUIRE_ENTRY: ${{ inputs.require-entry }}
+        SKIP_LABELS: ${{ inputs.skip-labels }}
+        PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        BASE_REF: ${{ github.event.pull_request.base.sha }}
+      run: "${{ github.action_path }}/scripts/validate.sh"
+
+    - name: Prepare release
+      id: release
+      if: inputs.mode == 'release'
+      shell: bash
+      env:
+        ENTRY_DIR: ${{ inputs.entry-dir }}
+        CHANGELOG_FILE: ${{ inputs.changelog-file }}
+        VERSION_FILE: ${{ inputs.version-file }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        FORCE_BUMP: ${{ inputs.force-bump }}
+        RELEASE_DATE: ${{ inputs.release-date }}
+        REPO_URL: ${{ inputs.compare-links == 'true' && format('{0}/{1}', github.server_url, github.repository) || '' }}
+        SECTION_OUT: ${{ runner.temp }}/changelog-section.md
+      run: "${{ github.action_path }}/scripts/release.sh"
+
+    - name: Open release pull request
+      id: pr
+      if: inputs.mode == 'release' && steps.release.outputs.has-changes == 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.release.outputs.version }}
+        BUMP: ${{ steps.release.outputs.bump }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        BASE_BRANCH: ${{ inputs.base-branch || github.ref_name }}
+        BRANCH_PREFIX: ${{ inputs.branch-prefix }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        PR_LABELS: ${{ inputs.pr-labels }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+        SECTION_FILE: ${{ runner.temp }}/changelog-section.md
+        DRY_RUN: ${{ inputs.dry-run }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: "${{ github.action_path }}/scripts/open-pr.sh"
+
+    - name: Summary
+      if: always() && inputs.mode == 'release'
+      shell: bash
+      env:
+        HAS: ${{ steps.release.outputs.has-changes }}
+        VER: ${{ steps.release.outputs.version }}
+        BUMP: ${{ steps.release.outputs.bump }}
+        URL: ${{ steps.pr.outputs.pull-request-url }}
+      run: |
+        {
+          if [ "${HAS:-false}" = "true" ]; then
+            echo "### Release prepared: \`${VER}\` (${BUMP})"
+            [ -n "${URL:-}" ] && echo "" && echo "Pull request: ${URL}"
+          else
+            echo "### No changelog entries — nothing to release."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"

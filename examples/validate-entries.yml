@@ -1,0 +1,27 @@
+# .github/workflows/validate-entries.yml
+#
+# Checks on every PR that a changelog entry exists and is well-formed.
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: your-org/changelog-action@v1
+        with:
+          mode: validate
+          entry-dir: .changelog
+          require-entry: 'true'
+          skip-labels: no-changelog,skip-changelog,dependencies
