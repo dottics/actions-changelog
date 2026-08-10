@@ -39,7 +39,7 @@ jobs:
           fetch-tags: true
 
       - id: changelog
-        uses: dottics/actions-changelog@v1
+        uses: dottics/actions-changelog@v2
         with:
           mode: release
           base-branch: main

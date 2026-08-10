@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: dottics/actions-changelog@v1
+      - uses: dottics/actions-changelog@v2
         with:
           mode: validate
           require-entry: 'true'

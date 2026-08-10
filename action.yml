@@ -14,7 +14,10 @@ inputs:
     required: false
     default: release
   entry-dir:
-    description: Directory holding major/ minor/ patch/ entry files.
+    description: >-
+      Directory holding the changelog entry files. Entries are flat
+      <short-slug>.md files carrying a required "semver: major|minor|patch"
+      header and an optional "type:" category.
     required: false
     default: .changelog
   changelog-file:
@@ -38,7 +41,9 @@ inputs:
     required: false
     default: v
   force-bump:
-    description: Override the detected bump level (major|minor|patch).
+    description: >-
+      Override the bump the entries ask for (major|minor|patch). Entries still
+      have to declare a valid "semver:" header.
     required: false
     default: ''
   release-date:
@@ -78,7 +83,7 @@ inputs:
     required: false
     default: '41898282+github-actions[bot]@users.noreply.github.com'
   require-entry:
-    description: (validate mode) Fail when the PR adds no changelog entry.
+    description: (validate mode) Fail when the PR adds no changelog entry file.
     required: false
     default: 'true'
   skip-labels:
