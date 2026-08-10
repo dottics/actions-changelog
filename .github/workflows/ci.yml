@@ -27,8 +27,8 @@ jobs:
           fetch-tags: true
       - name: seed an entry
         run: |
-          mkdir -p .changelog/patch
-          echo "Self-test entry" > .changelog/patch/self-test.md
+          mkdir -p .changelog
+          printf 'semver: patch\ntype: Fixed\nSelf-test entry\n' > .changelog/self-test.md
       - id: run
         uses: ./
         with:
@@ -38,6 +38,23 @@ jobs:
       - name: check outputs
         run: |
           test "${{ steps.run.outputs.has-changes }}" = "true"
+          test "${{ steps.run.outputs.bump }}" = "patch"
           test -n "${{ steps.run.outputs.version }}"
           grep -q "Self-test entry" CHANGELOG.md
+          grep -q "^### Fixed" CHANGELOG.md
           echo "resolved ${{ steps.run.outputs.previous-version }} -> ${{ steps.run.outputs.version }}"
+
+      # An entry with no semver header must stop the run, not release quietly.
+      - name: seed a headerless entry
+        run: |
+          git checkout -- CHANGELOG.md
+          mkdir -p .changelog
+          echo "No header here" > .changelog/headerless.md
+      - id: bad
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: release
+          dry-run: 'true'
+      - name: the headerless entry should have failed the step
+        run: test "${{ steps.bad.outcome }}" = "failure"

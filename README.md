@@ -3,11 +3,11 @@
 A GitHub Action that keeps `CHANGELOG.md` up to date without anyone having to
 remember to edit it.
 
-Contributors drop a small file into `.changelog/{major,minor,patch}/` as part
-of their PR. When that PR merges, this action works out the next semver
-version, writes a [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-section, deletes the consumed entries and opens a `chore(release): vX.Y.Z`
-pull request. Merging that PR is the release gate.
+Contributors drop a small file into `.changelog/` as part of their PR. When
+that PR merges, this action works out the next semver version, writes a
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) section, deletes the
+consumed entries and opens a `chore(release): vX.Y.Z` pull request. Merging
+that PR is the release gate.
 
 Pure bash in a composite action — no build step, no binary, no npm.
 
@@ -15,16 +15,16 @@ Pure bash in a composite action — no build step, no binary, no npm.
 
 Conventional-commit parsing infers the changelog from messages written for
 other developers. Entry files make the changelog line an explicit, reviewable
-artifact of the PR, and the per-bump-level directories mean two PRs never touch
-the same file, so there are no merge conflicts on `CHANGELOG.md`.
+artifact of the PR, and because every PR adds its own file, two PRs never touch
+the same one — so there are no merge conflicts on `CHANGELOG.md`.
 
 ## How it fits together
 
 ```
-PR #12  adds .changelog/minor/csv-export.md   ──┐
-PR #13  adds .changelog/patch/fix-redirect.md ──┤  both merge to main
-                                                 │
-                        push to main ────────────┘
+PR #12  adds .changelog/csv-export.md    ──┐  (semver: minor)
+PR #13  adds .changelog/fix-redirect.md  ──┤  (semver: patch)
+                                           │   both merge to main
+                       push to main ───────┘
                                 │
                     changelog-action (mode: release)
                                 │
@@ -48,8 +48,7 @@ Nothing to install — GitHub fetches the action from this repo at run time.
 **1. Create the entry directory:**
 
 ```bash
-mkdir -p .changelog/{major,minor,patch}
-touch .changelog/{major,minor,patch}/.gitkeep
+mkdir -p .changelog
 curl -sO https://raw.githubusercontent.com/dottics/actions-changelog/main/.changelog/README.md \
   --output-dir .changelog          # contributor docs, optional but recommended
 ```
@@ -79,7 +78,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - uses: dottics/actions-changelog@v1
+      - uses: dottics/actions-changelog@v2
         with:
           mode: release
           base-branch: main
@@ -100,9 +99,12 @@ Settings → Actions → General → Workflow permissions → tick
 
 | Reference | Behaviour |
 | --- | --- |
-| `dottics/actions-changelog@v1` | Latest v1.x.y. Recommended. |
-| `dottics/actions-changelog@v1.4.2` | Exact release. |
+| `dottics/actions-changelog@v2` | Latest v2.x.y. Recommended. |
+| `dottics/actions-changelog@v2.0.1` | Exact release. |
 | `dottics/actions-changelog@<sha>` | Immutable. Use if you need supply-chain pinning. |
+
+`@v1` still works and still expects the old `.changelog/{major,minor,patch}/`
+directories. See [Upgrading from v1](#upgrading-from-v1) before moving the pin.
 
 If the repo is private, consuming repos need
 Settings → Actions → General → *Access* set to allow other repos in the
@@ -110,27 +112,36 @@ Settings → Actions → General → *Access* set to allow other repos in the
 
 ## Writing an entry
 
-`.changelog/minor/csv-export-endpoint.md`:
+One flat file per change, `.changelog/csv-export-endpoint.md`:
 
 ```markdown
+semver: minor
 Added a CSV export endpoint at `/api/export`
 ```
 
-The directory sets the bump level. The filename is a slug for uniqueness only.
-The body is the changelog line.
+The filename is a slug for uniqueness only. The header says how far the version
+moves; everything below it is the changelog line.
 
-To pick a specific Keep a Changelog category, add a `type:` first line:
+`semver:` is required and must be `major`, `minor` or `patch`. A missing or
+unrecognised value fails the run — the action will not guess how far to move
+the version.
+
+`type:` is optional and picks the Keep a Changelog category:
 
 ```markdown
+semver: patch
 type: Security
 Bumped golang.org/x/net to patch CVE-2026-1234
 ```
 
-Without one, the category is derived from the bump level: `major → Changed`,
-`minor → Added`, `patch → Fixed`. Multi-line bodies get hanging indentation;
-bodies you've already written as `- ` bullets pass through untouched.
+Without it the category is derived from the bump: `major → Changed`,
+`minor → Added`, `patch → Fixed`. The two header lines may appear in either
+order, and the header ends at the first line that isn't one of them. Multi-line
+bodies get hanging indentation; bodies you've already written as `- ` bullets
+pass through untouched.
 
-Full contributor docs live in [`.changelog/README.md`](.changelog/README.md).
+Full contributor docs live in [`.changelog/README.md`](.changelog/README.md) —
+copy that file into your repo so contributors have the format to hand.
 
 ## How the version is calculated
 
@@ -139,12 +150,13 @@ compared as semver. Using both means the action stays correct whether you tag
 before or after merging the release PR, and it recovers if one of the two drifts.
 
 The bump is the **highest level present** across all waiting entries — one
-`major/` entry alongside five `patch/` entries produces a major bump.
+`semver: major` entry alongside five `semver: patch` entries produces a major
+bump.
 
 ```
-tag v1.2.3 + changelog [1.2.3] + a minor/ entry   →  1.3.0
-tag v1.2.3 + changelog [1.4.0] + a major/ entry   →  2.0.0
-no tags + no changelog + a patch/ entry           →  0.0.1
+tag v1.2.3 + changelog [1.2.3] + a `semver: minor` entry  →  1.3.0
+tag v1.2.3 + changelog [1.4.0] + a `semver: major` entry  →  2.0.0
+no tags + no changelog + a `semver: patch` entry          →  0.0.1
 ```
 
 If the computed version already has a section in `CHANGELOG.md`, the action
@@ -155,7 +167,7 @@ fails rather than writing a duplicate.
 | Input | Default | Description |
 | --- | --- | --- |
 | `mode` | `release` | `release` opens the bump PR; `validate` checks entries on a PR. |
-| `entry-dir` | `.changelog` | Directory holding `major/ minor/ patch/`. |
+| `entry-dir` | `.changelog` | Directory holding the entry files. |
 | `changelog-file` | `CHANGELOG.md` | Path to the changelog. Created if missing. |
 | `version-file` | *(empty)* | Optional file to write the bare version into, e.g. `VERSION`. |
 | `open-api-path` | *(empty)* | OpenAPI contract(s) whose `info.version` follows the release. See [Stamping contracts](#stamping-contracts). |
@@ -193,7 +205,7 @@ The release PR can carry the new version into your API contracts, so the
 published spec never disagrees with the changelog.
 
 ```yaml
-- uses: dottics/actions-changelog@v1
+- uses: dottics/actions-changelog@v2
   with:
     mode: release
     open-api-path: api/openapi.yaml
@@ -265,11 +277,49 @@ refreshes the same release PR with both entries.
 one-liner; keeping it out means this action can never publish something you
 didn't approve.
 
+**Nothing nested is collected.** Entries are flat files directly in the entry
+directory. A file in a subdirectory is an error, not a silent skip, so a change
+can never go unreleased because it landed in the wrong place.
+
+## Upgrading from v1
+
+In v1 the bump came from the directory an entry lived in. In v2 it comes from a
+`semver:` header in the file, and the entry directory is flat.
+
+```diff
+- .changelog/minor/csv-export.md
+-     Added a CSV export endpoint at `/api/export`
++ .changelog/csv-export.md
++     semver: minor
++     Added a CSV export endpoint at `/api/export`
+```
+
+To migrate a repo, move each waiting entry up a level and prepend the line its
+directory implied:
+
+```bash
+for level in major minor patch; do
+  for f in .changelog/$level/*.md; do
+    [ -e "$f" ] || continue
+    { echo "semver: $level"; cat "$f"; } > ".changelog/$(basename "$f")"
+    git rm -q "$f"
+    git add ".changelog/$(basename "$f")"
+  done
+done
+rm -rf .changelog/{major,minor,patch}
+```
+
+Then move the pin from `@v1` to `@v2`. Already-released `CHANGELOG.md` sections
+are untouched — the change is only in how pending entries are written.
+
+If you bump the pin before migrating, the run fails with the list of files to
+move rather than opening an empty release PR.
+
 ## Repo layout
 
 ```
 action.yml               composite action definition
-scripts/lib.sh           semver, entry parsing, changelog rendering
+scripts/lib.sh           semver, entry header parsing, changelog rendering
 scripts/stamp.sh         contract version stampers (openapi; extend here)
 scripts/validate.sh      mode: validate
 scripts/release.sh       mode: release — rewrites CHANGELOG.md in the worktree
@@ -281,7 +331,7 @@ examples/                workflows to copy into consuming repos
 ## Releasing this action
 
 Tag a `vX.Y.Z` release; `.github/workflows/major-tag.yml` force-moves the
-floating `vX` tag so consumers on `@v1` pick it up automatically. This repo
+floating `vX` tag so consumers on `@v2` pick it up automatically. This repo
 dogfoods its own `.changelog` directory, so the version bump itself arrives as
 a release PR.
 

@@ -2,7 +2,7 @@
 # validate.sh — PR-time check that changelog entries are present and well-formed.
 #
 # Env:
-#   ENTRY_DIR        default .changelog
+#   ENTRY_DIR        default .changelog (flat <slug>.md files, `semver:` header)
 #   REQUIRE_ENTRY    "true" to fail when a PR adds no entry at all
 #   BASE_REF         base branch to diff against when REQUIRE_ENTRY is on
 #   SKIP_LABELS      comma-separated PR labels that waive REQUIRE_ENTRY
@@ -24,25 +24,33 @@ fail() { printf '::error::%s\n' "$*" >&2; errors=$((errors + 1)); }
 
 # --- structural checks ------------------------------------------------------
 
-while IFS= read -r d; do
-  [ -n "$d" ] || continue
-  fail "'$d' is not a valid bump level directory. Use ${ENTRY_DIR}/major, ${ENTRY_DIR}/minor or ${ENTRY_DIR}/patch."
-done < <(entries_bad_dirs "$ENTRY_DIR")
-
+# Entries are flat files. Anything nested is invisible to the release, so it
+# has to be an error rather than a silently skipped change.
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  fail "'$f' sits directly in ${ENTRY_DIR}/. Move it into ${ENTRY_DIR}/{major,minor,patch}/."
-done < <(entries_stray "$ENTRY_DIR")
+  if entry_is_legacy "$f" "$ENTRY_DIR"; then
+    fail "'$f' uses the v1 bump-level layout. Move it to ${ENTRY_DIR}/$(basename "$f") and give it a 'semver:' header."
+  else
+    fail "'$f' is in a subdirectory of ${ENTRY_DIR}/ and will never be picked up. Entries are flat: ${ENTRY_DIR}/<short-slug>.md."
+  fi
+done < <(entries_nested "$ENTRY_DIR")
 
 # --- per-entry checks -------------------------------------------------------
 
 count=0
-tsv="$(mktemp)"
-entries_find "$ENTRY_DIR" >"$tsv"
+list="$(mktemp)"
+entries_find "$ENTRY_DIR" >"$list"
 
-while IFS=$'\t' read -r _ path; do
+while IFS= read -r path; do
   [ -n "${path:-}" ] || continue
   count=$((count + 1))
+
+  raw="$(entry_raw_semver "$path")"
+  if [ -z "$raw" ]; then
+    fail "$path has no 'semver:' header. Start the file with 'semver: major', 'semver: minor' or 'semver: patch'."
+  elif [ -z "$(normalize_bump "$raw")" ]; then
+    fail "$path declares 'semver: $raw', which is not a bump level (${CL_BUMPS[*]})."
+  fi
 
   raw="$(entry_raw_type "$path")"
   if [ -n "$raw" ] && [ -z "$(normalize_type "$raw")" ]; then
@@ -50,14 +58,14 @@ while IFS=$'\t' read -r _ path; do
   fi
 
   if [ -z "$(entry_body "$path")" ]; then
-    fail "$path is empty. Write the changelog line you want published."
+    fail "$path has no body. Write the changelog line you want published below the header."
   fi
 
   case "$path" in
     *.md|*.markdown|*.txt) ;;
     *) warn "$path has no .md/.txt extension; it will still be picked up." ;;
   esac
-done <"$tsv"
+done <"$list"
 
 log "found $count changelog entr$([ "$count" = 1 ] && echo y || echo ies) under $ENTRY_DIR/"
 
@@ -83,11 +91,11 @@ if [ "$REQUIRE_ENTRY" = "true" ] && [ "$skip" != "true" ]; then
     added="$count"
   fi
   if [ "$added" -eq 0 ]; then
-    fail "This PR adds no changelog entry. Create ${ENTRY_DIR}/{major|minor|patch}/<short-slug>.md describing the change."
+    fail "This PR adds no changelog entry. Create ${ENTRY_DIR}/<short-slug>.md with a 'semver:' header describing the change."
   fi
 fi
 
-rm -f "$tsv"
+rm -f "$list"
 
 set_output "entry-count" "$count"
 

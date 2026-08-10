@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# release.sh — consume .changelog entries, bump the version and rewrite
+# release.sh — consume the flat .changelog entries, bump the version and rewrite
 # CHANGELOG.md in the working tree. Does not commit, branch or push; that is
 # open-pr.sh's job.
 #
@@ -40,11 +40,26 @@ STAMP_SPECS=(
 
 # --- gather entries ---------------------------------------------------------
 
-tsv="$(mktemp)"
-entries_find "$ENTRY_DIR" >"$tsv"
+# Nested files are never collected, so a leftover v1 `major/ minor/ patch/`
+# tree would quietly release nothing at all. Stop before that can happen.
+nested="$(entries_nested "$ENTRY_DIR")"
+if [ -n "$nested" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if entry_is_legacy "$f" "$ENTRY_DIR"; then
+      warn "$f uses the v1 bump-level layout."
+    else
+      warn "$f is in a subdirectory of $ENTRY_DIR/ and is not a changelog entry."
+    fi
+  done <<<"$nested"
+  die "entries must be flat files ($ENTRY_DIR/<short-slug>.md) with a 'semver:' header. Move the files listed above and re-run."
+fi
 
-if [ ! -s "$tsv" ]; then
-  log "no entries under $ENTRY_DIR/ — nothing to release."
+list="$(mktemp)"
+entries_find "$ENTRY_DIR" >"$list"
+
+if [ ! -s "$list" ]; then
+  log "no entries in $ENTRY_DIR/ — nothing to release."
   set_output "has-changes" "false"
   set_output "bump" ""
   set_output "version" ""
@@ -54,11 +69,15 @@ fi
 
 bump=""
 best=0
-while IFS=$'\t' read -r lvl path; do
+while IFS= read -r path; do
   [ -n "${path:-}" ] || continue
+  raw="$(entry_raw_semver "$path")"
+  [ -n "$raw" ] || die "$path has no 'semver:' header. Start the file with 'semver: major', 'semver: minor' or 'semver: patch'."
+  lvl="$(normalize_bump "$raw")"
+  [ -n "$lvl" ] || die "$path declares 'semver: $raw', which is not a bump level (${CL_BUMPS[*]})."
   r="$(bump_rank "$lvl")"
   if [ "$r" -gt "$best" ]; then best="$r"; bump="$lvl"; fi
-done <"$tsv"
+done <"$list"
 
 if [ -n "$FORCE_BUMP" ]; then
   log "overriding detected bump '$bump' with forced '$FORCE_BUMP'"
@@ -95,7 +114,7 @@ fi
 changelog_ensure "$CHANGELOG_FILE"
 
 section="$(mktemp)"
-render_section "$next" "$RELEASE_DATE" "$tsv" >"$section"
+render_section "$next" "$RELEASE_DATE" "$list" >"$section"
 
 changelog_insert "$CHANGELOG_FILE" "$section"
 changelog_update_links "$CHANGELOG_FILE" "$next" "$prev_link" "$REPO_URL" "$TAG_PREFIX"
@@ -126,7 +145,7 @@ done
 # --- consume the entry files ------------------------------------------------
 
 consumed=0
-while IFS=$'\t' read -r lvl path; do
+while IFS= read -r path; do
   [ -n "${path:-}" ] || continue
   if git rev-parse --git-dir >/dev/null 2>&1 && git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
     git rm --quiet -- "$path"
@@ -134,23 +153,21 @@ while IFS=$'\t' read -r lvl path; do
     rm -f -- "$path"
   fi
   consumed=$((consumed + 1))
-done <"$tsv"
+done <"$list"
 log "consumed $consumed entry file(s)"
 
-# `git rm` prunes directories that become empty, so recreate the bump dirs
-# (with a .gitkeep) for the next contributor.
-for lvl in "${CL_BUMPS[@]}"; do
-  mkdir -p "$ENTRY_DIR/$lvl"
-  if [ -z "$(ls -A "$ENTRY_DIR/$lvl" 2>/dev/null)" ]; then
-    : >"$ENTRY_DIR/$lvl/.gitkeep"
-  fi
-done
+# `git rm` prunes a directory that becomes empty, so keep the entry directory
+# itself alive for the next contributor.
+mkdir -p "$ENTRY_DIR"
+if [ -z "$(ls -A "$ENTRY_DIR" 2>/dev/null)" ]; then
+  : >"$ENTRY_DIR/.gitkeep"
+fi
 
 if [ -n "$SECTION_OUT" ]; then
   cp "$section" "$SECTION_OUT"
 fi
 
-rm -f "$tsv" "$section"
+rm -f "$list" "$section"
 
 set_output "has-changes" "true"
 set_output "bump" "$bump"
