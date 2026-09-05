@@ -61,7 +61,7 @@ inputs:
   branch-prefix:
     description: Prefix for the release branch name.
     required: false
-    default: release/
+    default: ''
   pr-title:
     description: 'Title of the release PR. Defaults to "chore(release): <tag>".'
     required: false
