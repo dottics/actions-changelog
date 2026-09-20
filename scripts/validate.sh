@@ -85,9 +85,14 @@ fi
 
 if [ "$REQUIRE_ENTRY" = "true" ] && [ "$skip" != "true" ]; then
   added=0
-  if [ -n "$BASE_REF" ] && git rev-parse --verify --quiet "$BASE_REF" >/dev/null; then
+  if [ -n "$BASE_REF" ] && git rev-parse --verify --quiet "$BASE_REF" >/dev/null 2>&1; then
     added="$(git diff --name-only --diff-filter=A "$BASE_REF"...HEAD -- "$ENTRY_DIR" | grep -c . || true)"
+  elif git rev-parse --verify --quiet "origin/HEAD" >/dev/null 2>&1; then
+    base_sha="$(git rev-parse origin/HEAD)"
+    log "BASE_REF unset (push event?) — diffing against origin/HEAD ($base_sha)"
+    added="$(git diff --name-only --diff-filter=A "$base_sha"...HEAD -- "$ENTRY_DIR" | grep -c . || true)"
   else
+    warn "BASE_REF is unset and origin/HEAD is unavailable — cannot diff new entries; require-entry check skipped"
     added="$count"
   fi
   if [ "$added" -eq 0 ]; then

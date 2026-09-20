@@ -2,11 +2,11 @@ name: Changelog Release PR
 description: >-
   Collect .changelog entries, work out the semver bump, and open a pull request
   that updates CHANGELOG.md and the version. Also validates entries on PRs.
-author: Johannes
+author: Johannes Scribante
 
 branding:
-  icon: file-text
-  color: purple
+  icon: send
+  color: orange
 
 inputs:
   mode:
@@ -82,6 +82,13 @@ inputs:
     description: git user.email for the release commit.
     required: false
     default: '41898282+github-actions[bot]@users.noreply.github.com'
+  base-ref:
+    description: >-
+      (validate mode) Ref or SHA to diff against when detecting new entries.
+      Defaults to the PR base SHA on pull_request events; on push events falls
+      back to origin/HEAD automatically if left empty.
+    required: false
+    default: ''
   require-entry:
     description: (validate mode) Fail when the PR adds no changelog entry file.
     required: false
@@ -141,7 +148,7 @@ runs:
         REQUIRE_ENTRY: ${{ inputs.require-entry }}
         SKIP_LABELS: ${{ inputs.skip-labels }}
         PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        BASE_REF: ${{ github.event.pull_request.base.sha }}
+        BASE_REF: ${{ inputs.base-ref || github.event.pull_request.base.sha }}
       run: "${{ github.action_path }}/scripts/validate.sh"
 
     - name: Prepare release

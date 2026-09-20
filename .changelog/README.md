@@ -67,7 +67,7 @@ semver: minor
 ## What happens next
 
 When your PR merges, a bot opens a `chore(release): vX.Y.Z` pull request that
-folds every waiting entry into `CHANGELOG.md`, bumps the version, and deletes
+folds every waiting entry into `../../../../CHANGELOG.md`, bumps the version, and deletes
 the entry files. The highest `semver:` among the waiting entries wins — one
 `major` entry alongside five `patch` entries produces a major release.
 

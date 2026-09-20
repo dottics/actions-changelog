@@ -1,9 +1,9 @@
 # changelog-action
 
-A GitHub Action that keeps `CHANGELOG.md` up to date without anyone having to
+A GitHub Action that keeps `../../../CHANGELOG.md` up to date without anyone having to
 remember to edit it.
 
-Contributors drop a small file into `.changelog/` as part of their PR. When
+Contributors drop a small file into `../../../.changelog` as part of their PR. When
 that PR merges, this action works out the next semver version, writes a
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) section, deletes the
 consumed entries and opens a `chore(release): vX.Y.Z` pull request. Merging
@@ -16,7 +16,7 @@ Pure bash in a composite action — no build step, no binary, no npm.
 Conventional-commit parsing infers the changelog from messages written for
 other developers. Entry files make the changelog line an explicit, reviewable
 artifact of the PR, and because every PR adds its own file, two PRs never touch
-the same one — so there are no merge conflicts on `CHANGELOG.md`.
+the same one — so there are no merge conflicts on `../../../CHANGELOG.md`.
 
 ## How it fits together
 
@@ -140,7 +140,7 @@ order, and the header ends at the first line that isn't one of them. Multi-line
 bodies get hanging indentation; bodies you've already written as `- ` bullets
 pass through untouched.
 
-Full contributor docs live in [`.changelog/README.md`](.changelog/README.md) —
+Full contributor docs live in [`../../../.changelog/README.md`](.changelog/README.md) —
 copy that file into your repo so contributors have the format to hand.
 
 ## How the version is calculated
@@ -159,7 +159,7 @@ tag v1.2.3 + changelog [1.4.0] + a `semver: major` entry  →  2.0.0
 no tags + no changelog + a `semver: patch` entry          →  0.0.1
 ```
 
-If the computed version already has a section in `CHANGELOG.md`, the action
+If the computed version already has a section in `../../../CHANGELOG.md`, the action
 fails rather than writing a duplicate.
 
 ## Inputs
@@ -168,7 +168,7 @@ fails rather than writing a duplicate.
 | --- | --- | --- |
 | `mode` | `release` | `release` opens the bump PR; `validate` checks entries on a PR. |
 | `entry-dir` | `.changelog` | Directory holding the entry files. |
-| `changelog-file` | `CHANGELOG.md` | Path to the changelog. Created if missing. |
+| `changelog-file` | `../../../CHANGELOG.md` | Path to the changelog. Created if missing. |
 | `version-file` | *(empty)* | Optional file to write the bare version into, e.g. `VERSION`. |
 | `open-api-path` | *(empty)* | OpenAPI contract(s) whose `info.version` follows the release. See [Stamping contracts](#stamping-contracts). |
 | `tag-prefix` | `v` | Prefix on release tags. |
@@ -309,7 +309,7 @@ done
 rm -rf .changelog/{major,minor,patch}
 ```
 
-Then move the pin from `@v1` to `@v2`. Already-released `CHANGELOG.md` sections
+Then move the pin from `@v1` to `@v2`. Already-released `../../../CHANGELOG.md` sections
 are untouched — the change is only in how pending entries are written.
 
 If you bump the pin before migrating, the run fails with the list of files to
