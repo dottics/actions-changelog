@@ -124,7 +124,13 @@ done < <(printf '%s\n' "$release_prs" | jq -c '.[]' 2>/dev/null || true)
 
 # ── open or refresh the release PR ────────────────────────────────────────────
 if [ -n "$existing_url" ]; then
-  gh pr edit "$existing_url" --title "$PR_TITLE" --body-file "$body_file" >/dev/null 2>&1 \
+  pr_number="$(printf '%s' "$existing_url" | grep -oE '[0-9]+$')"
+  jq -n --arg title "$PR_TITLE" --rawfile body "$body_file" \
+    '{"title": $title, "body": $body}' \
+  | gh api "repos/{owner}/{repo}/pulls/$pr_number" \
+      --method PATCH \
+      --input - \
+      --silent \
     || warn "could not refresh existing PR title/body (non-fatal)"
   url="$existing_url"
   log "updated existing PR: $url"
@@ -136,7 +142,7 @@ else
           --base "$BASE_BRANCH" \
           --title "$PR_TITLE" \
           --body-file "$body_file" 2>&1)" || true
-  url="$(printf '%s' "$create_out" | grep -Eo 'https://github\.com/[^[:space:]]*/pull/[0-9]+' | head -1)"
+  url="$(printf '%s' "$create_out" | grep -Eo 'https://github\.com/[^[:space:]]*/pull/[0-9]+' | head -1 || true)"
   if [ -z "$url" ]; then
     printf '%s\n' "$create_out" >&2
     die "failed to create or find release PR for branch '$BRANCH'"
@@ -145,13 +151,15 @@ else
 fi
 
 if [ -n "$PR_LABELS" ]; then
-  IFS=',' read -ra _labels <<<"$PR_LABELS"
-  for l in "${_labels[@]}"; do
-    l="$(printf '%s' "$l" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-    [ -n "$l" ] || continue
-    gh pr edit "$url" --add-label "$l" >/dev/null 2>&1 \
-      || warn "could not add label '$l' (does it exist in the repo?)"
-  done
+  pr_number="$(printf '%s' "$url" | grep -oE '[0-9]+$')"
+  labels_json="$(printf '%s' "$PR_LABELS" | tr ',' '\n' \
+    | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' \
+    | grep -v '^$' \
+    | jq -R . | jq -sc .)"
+  gh_err="$(printf '{"labels":%s}' "$labels_json" \
+    | gh api "repos/{owner}/{repo}/issues/$pr_number/labels" \
+        --method POST --input - 2>&1)" \
+    || warn "could not apply labels [$PR_LABELS]: $gh_err"
 fi
 
 rm -f "$body_file"

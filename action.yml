@@ -200,7 +200,7 @@ runs:
         {
           if [ "${HAS:-false}" = "true" ]; then
             echo "### Release prepared: \`${VER}\` (${BUMP})"
-            [ -n "${URL:-}" ] && echo "" && echo "Pull request: ${URL}"
+            if [ -n "${URL:-}" ]; then echo "" && echo "Pull request: ${URL}"; fi
           else
             echo "### No changelog entries — nothing to release."
           fi

@@ -5,32 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.2] - 2026-09-20
-
-### Changed
-
-- When a PR is opened for release, the semver max is always used. If the PR 
-  already exists and the version is different, then the old PR is closed and a
-  new PR is created.
-
-## [2.0.1] - 2026-09-05
+## [2.0.2] - 2026-10-02
 
 ### Fixed
 
-- The naming convention to remove a default branch prefix and to keep it on one
-  place in the `open-pr.sh` script.
+- The action was using the GitHub graphql API which could not update a pull
+  request. This has been changed to an explicit rest API call to update the
+  pull request body if the release pull request was updated.
 
-## [2.0.0] - 2026-09-05
+## [0.2.0] - 2026-09-02
 
-### Added
+### Changed
 
-- Changelog entries are now a single flat file per change, 
-  `.changelog/<slug>.md`, with a required `semver: major|minor|patch` header
-  instead of a bump-level directory.
-- `type:` is still optional and may sit either side of `semver:`. A missing or
-  unrecognised `semver:` fails the run rather than defaulting, and a file left 
-  in `.changelog/{major,minor,patch}/` is reported as an error instead of being
-  silently skipped. See "Upgrading from v1" in the README for the migration.
+- The `.changelog` is no longer nested based on semver versions, but instead a
+  flat structure of changelog slugs.
 
 ## [0.1.0] - 2026-08-09
 
@@ -43,4 +31,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `chore(release): vX.Y.Z` pull request that rewrites the changelog,
   optionally updates a `VERSION` file, and deletes consumed entries.
 - Compare-style reference links at the bottom of the changelog.
-- Dependency-free bash test suite under `tests/`.
+- Dependency-free bash test suite under `tests`.
